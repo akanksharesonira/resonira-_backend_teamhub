@@ -1,4 +1,6 @@
-﻿const success = (res, data = null, message = 'Success', statusCode = 200) => {
+const logger = require('./logger');
+
+const success = (res, data = null, message = 'Success', statusCode = 200) => {
   return res.status(statusCode).json({
     success: true,
     message,
@@ -7,6 +9,10 @@
 };
 
 const error = (res, message = 'Internal Server Error', statusCode = 500, errors = null) => {
+  if (statusCode >= 500) {
+    logger.error(`API Error: ${message}`, { statusCode, errors });
+  }
+  
   const response = {
     success: false,
     message,

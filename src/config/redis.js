@@ -1,4 +1,4 @@
-﻿const Redis = require('ioredis');
+const Redis = require('ioredis');
 const env = require('./env');
 const logger = require('../utils/logger');
 
@@ -12,8 +12,12 @@ const connectRedis = () => {
       password: env.REDIS.password,
       maxRetriesPerRequest: 3,
       retryStrategy: (times) => {
-        if (times > 3) return null;
-        return Math.min(times * 200, 2000);
+        // Stop retying if times > 20, but keep trying initially to catch start delays
+        if (times > 20) {
+          logger.warn('Redis connection failed after 20 retries. Disabling Redis features.');
+          return null; 
+        }
+        return Math.min(times * 100, 3000);
       },
     });
 

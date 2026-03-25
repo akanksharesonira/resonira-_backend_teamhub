@@ -13,10 +13,10 @@ const { authorize } = require('../../../middleware/rbac.middleware');
 
 router.use(authenticate);
 
-router.post('/', authorize('admin', 'super_admin'), create);
+router.post('/', authorize('super_admin', 'admin', 'administrator', 'hr'), create);
 router.get('/', getAll);
 router.get('/:id', getById);
-router.put('/:id', authorize('admin', 'super_admin'), update);
-router.delete('/:id', authorize('admin', 'super_admin'), remove);
+router.put('/:id', authorize('super_admin', 'admin', 'administrator', 'hr'), update);
+router.delete('/:id', authorize('super_admin', 'admin', 'administrator', 'hr'), remove);
 
 module.exports = router;

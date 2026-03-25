@@ -1,4 +1,4 @@
-﻿const { User, Employee, RefreshToken } = require('../database/models');
+const { User, Employee, RefreshToken } = require('../database/models');
 const { hashPassword, comparePassword, generateToken, generateRefreshToken, verifyRefreshToken } = require('../utils/encryption');
 const { Op } = require('sequelize');
 
@@ -8,21 +8,36 @@ class AuthService {
     if (existing) throw { statusCode: 409, message: 'Email already registered' };
 
     const password_hash = await hashPassword(data.password);
-    const user = await User.create({
-      email: data.email,
-      password_hash,
-      role: data.role || 'employee',
+    
+    // Wrap in transaction for bidirectional consistency
+    const result = await User.sequelize.transaction(async (t) => {
+      const user = await User.create({
+        email: data.email,
+        password_hash,
+        role: data.role || 'employee',
+      }, { transaction: t });
+
+      const employee = await Employee.create({
+        user_id: user.id,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        phone: data.phone,
+        employee_code: `EMP${String(user.id).padStart(5, '0')}`,
+      }, { transaction: t });
+
+      // Bidirectional link
+      await user.update({ employee_id: employee.id }, { transaction: t });
+
+      return { user, employee };
     });
 
-    await Employee.create({
-      user_id: user.id,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      phone: data.phone,
-      employee_code: `EMP${String(user.id).padStart(5, '0')}`,
+    const { user, employee } = result;
+    const token = generateToken({ 
+      id: user.id, 
+      email: user.email, 
+      role: user.role, 
+      employeeId: employee.id 
     });
-
-    const token = generateToken({ id: user.id, email: user.email, role: user.role });
     const refreshToken = generateRefreshToken({ id: user.id });
 
     await RefreshToken.create({
@@ -31,11 +46,30 @@ class AuthService {
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
-    return { user: { id: user.id, email: user.email, role: user.role }, token, refreshToken };
+    return { 
+      user: { 
+        id: user.id,
+        name: `${employee.first_name} ${employee.last_name || ''}`.trim(),
+        email: user.email, 
+        role: user.role,
+        employeeId: employee.id 
+      }, 
+      token, 
+      refreshToken 
+    };
   }
 
   async login(email, password) {
-    const user = await User.findOne({ where: { email } });
+    // Correctly JOIN users and employees tables as requested
+    const user = await User.findOne({ 
+      where: { email },
+      include: [{ 
+        model: Employee, 
+        as: 'employee',
+        attributes: ['id', 'first_name', 'last_name', 'profile_picture']
+      }]
+    });
+
     if (!user) throw { statusCode: 401, message: 'Invalid credentials' };
     if (!user.is_active) throw { statusCode: 403, message: 'Account is deactivated' };
 
@@ -44,7 +78,13 @@ class AuthService {
 
     await user.update({ last_login: new Date() });
 
-    const token = generateToken({ id: user.id, email: user.email, role: user.role });
+    const empId = user.employee ? user.employee.id : null;
+    const token = generateToken({ 
+      id: user.id, 
+      email: user.email, 
+      role: user.role, 
+      employeeId: empId 
+    });
     const refreshToken = generateRefreshToken({ id: user.id });
 
     await RefreshToken.create({
@@ -53,14 +93,15 @@ class AuthService {
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
-    const employee = await Employee.findOne({ where: { user_id: user.id } });
-
     return {
       user: {
         id: user.id,
+        name: user.employee ? `${user.employee.first_name} ${user.employee.last_name || ''}`.trim() : 'Guest',
         email: user.email,
         role: user.role,
-        employee: employee ? { id: employee.id, first_name: employee.first_name, last_name: employee.last_name, profile_picture: employee.profile_picture } : null,
+        employeeId: empId,
+        department: user.employee?.department?.name || null,
+        employee: user.employee || null,
       },
       token,
       refreshToken,
@@ -97,7 +138,17 @@ class AuthService {
       include: [{ model: Employee, as: 'employee', include: ['department', 'designation'] }],
     });
     if (!user) throw { statusCode: 404, message: 'User not found' };
-    return user;
+
+    const userData = user.toJSON();
+    return {
+      id: userData.id,
+      name: userData.employee ? `${userData.employee.first_name} ${userData.employee.last_name || ''}`.trim() : 'Guest',
+      email: userData.email,
+      role: userData.role,
+      employeeId: userData.employee ? userData.employee.id : null,
+      department: userData.employee?.department?.name || null,
+      employee: userData.employee || null,
+    };
   }
 
   async changePassword(userId, oldPassword, newPassword) {

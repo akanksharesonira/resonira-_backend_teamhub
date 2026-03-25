@@ -1,4 +1,4 @@
-﻿const { DataTypes } = require('sequelize');
+const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 
 const Attendance = sequelize.define('Attendance', {
@@ -13,6 +13,7 @@ const Attendance = sequelize.define('Attendance', {
     type: DataTypes.ENUM('present', 'absent', 'late', 'half_day', 'wfh', 'on_leave'),
     defaultValue: 'present',
   },
+  duration: { type: DataTypes.INTEGER, defaultValue: 0 }, // in seconds
   total_hours: { type: DataTypes.DECIMAL(5, 2) },
   overtime_hours: { type: DataTypes.DECIMAL(5, 2), defaultValue: 0 },
   notes: { type: DataTypes.TEXT },

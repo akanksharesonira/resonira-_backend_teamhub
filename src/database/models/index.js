@@ -1,4 +1,4 @@
-﻿const sequelize = require('../../config/database');
+const sequelize = require('../../config/database');
 
 // ─── Import All Models ──────────────────────────────────────
 const Organization = require('./Organization');
@@ -85,7 +85,7 @@ Leave.belongsTo(LeaveType, { foreignKey: 'leave_type_id', as: 'leaveType' });
 
 // Messaging
 User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
-Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
+Message.belongsTo(Employee, { foreignKey: 'sender_id', as: 'sender' });
 
 // Chat
 ChatRoom.hasMany(Message, { foreignKey: 'chat_room_id', as: 'messages' });
@@ -115,6 +115,37 @@ GroupMember.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 // Notifications
 User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications' });
 Notification.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Calendar
+User.hasMany(Calendar, { foreignKey: 'user_id', as: 'calendarEvents' });
+Calendar.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+
+// Meeting
+Meeting.hasMany(MeetingParticipant, { foreignKey: 'meeting_id', as: 'participants' });
+MeetingParticipant.belongsTo(Meeting, { foreignKey: 'meeting_id', as: 'meeting' });
+User.hasMany(MeetingParticipant, { foreignKey: 'user_id', as: 'meetingMemberships' });
+MeetingParticipant.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(Meeting, { foreignKey: 'organizer_id', as: 'organizedMeetings' });
+Meeting.belongsTo(User, { foreignKey: 'organizer_id', as: 'organizer' });
+
+// Project
+Project.hasMany(Task, { foreignKey: 'project_id', as: 'tasks' });
+Task.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
+
+// Task
+Employee.hasMany(Task, { foreignKey: 'assignedTo', as: 'assignedTasks' });
+Task.belongsTo(Employee, { foreignKey: 'assignedTo', as: 'assignee' });
+Employee.hasMany(Task, { foreignKey: 'createdBy', as: 'createdTasks' });
+Task.belongsTo(Employee, { foreignKey: 'createdBy', as: 'creator' });
+
+
+
+// TaskComment
+Task.hasMany(TaskComment, { foreignKey: 'task_id', as: 'comments' });
+TaskComment.belongsTo(Task, { foreignKey: 'task_id', as: 'task' });
+User.hasMany(TaskComment, { foreignKey: 'user_id', as: 'taskComments' });
+TaskComment.belongsTo(User, { foreignKey: 'user_id', as: 'author' });
 
 // ─── Export ─────────────────────────────────────────────────
 module.exports = {

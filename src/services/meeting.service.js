@@ -1,4 +1,4 @@
-﻿const models = require('../database/models');
+const models = require('../database/models');
 const { Op } = require('sequelize');
 
 const Meeting = models.Meeting;
@@ -73,8 +73,7 @@ const getAll = async (query, userId) => {
       {
         model: MeetingParticipant,
         as: 'participants',
-        where: { user_id: userId },
-        required: false
+        required: false // 🔥 Keep this false for Op.or
       }
     ],
     where: {
@@ -86,6 +85,7 @@ const getAll = async (query, userId) => {
     limit,
     offset,
     distinct: true,
+    subQuery: false, // 🔥 CRITICAL for filtering on associations with limit/offset
     order: [['start_time', 'DESC']]
   });
 

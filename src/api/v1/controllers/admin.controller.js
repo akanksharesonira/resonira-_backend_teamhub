@@ -1,4 +1,4 @@
-﻿const { User, Employee, Department, Designation, Organization, Role, Permission, Holiday, LeaveType } = require('../../../database/models');
+const { User, Employee, Department, Designation, Organization, Role, Permission, Holiday, LeaveType } = require('../../../database/models');
 const { success, error, paginated } = require('../../../utils/response');
 const { parsePagination } = require('../../../utils/validators');
 const { hashPassword } = require('../../../utils/encryption');
@@ -8,7 +8,15 @@ const getUsers = async (req, res) => {
     const { page, limit, offset } = parsePagination(req.query);
     const { count, rows } = await User.findAndCountAll({
       attributes: { exclude: ['password_hash'] },
-      include: [{ model: Employee, as: 'employee', attributes: ['id', 'first_name', 'last_name'] }],
+      include: [{
+        model: Employee,
+        as: 'employee',
+        attributes: ['id', 'first_name', 'last_name', 'phone', 'date_of_joining', 'status', 'employee_code'],
+        include: [
+          { model: Department, as: 'department', attributes: ['id', 'name'] },
+          { model: Designation, as: 'designation', attributes: ['id', 'name'] },
+        ],
+      }],
       order: [['created_at', 'DESC']],
       limit, offset,
     });
@@ -33,8 +41,13 @@ const toggleUserStatus = async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return error(res, 'User not found', 404);
-    await user.update({ is_active: !user.is_active });
-    return success(res, user, `User ${user.is_active ? 'activated' : 'deactivated'}`);
+    // Accept explicit is_active from body, or toggle
+    const newStatus = req.body.is_active !== undefined ? req.body.is_active : !user.is_active;
+    await user.update({ is_active: newStatus });
+    const updatedUser = await User.findByPk(req.params.id, {
+      attributes: { exclude: ['password_hash'] },
+    });
+    return success(res, updatedUser, `User ${updatedUser.is_active ? 'activated' : 'deactivated'}`);
   } catch (err) {
     return error(res, err.message);
   }

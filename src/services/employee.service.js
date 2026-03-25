@@ -1,47 +1,73 @@
-﻿const { Employee, User, Department, Designation } = require('../database/models');
+const { Employee, User, Department, Designation, sequelize } = require('../database/models');
 const { Op } = require('sequelize');
 const { parsePagination, parseSort } = require('../utils/validators');
-const bcrypt = require('bcrypt');
+const { hashPassword } = require('../utils/encryption');
 
 class EmployeeService {
 
-  // 🔥 CREATE EMPLOYEE (FINAL FIX)
+  // ✅ CREATE EMPLOYEE + USER (with bidirectional linking and transaction)
   async create(data) {
-    // ✅ validation
-    if (!data.first_name || !data.email) {
-      throw { statusCode: 400, message: 'First name and email are required' };
-    }
-
-    // ✅ check duplicate email in USER table
-    const existingUser = await User.findOne({
-      where: { email: data.email }
-    });
-
+    // Check duplicate email
+    const existingUser = await User.findOne({ where: { email: data.email } });
     if (existingUser) {
       throw { statusCode: 400, message: 'Email already exists' };
     }
 
-    // ✅ create USER first
-    const hashedPassword = await bcrypt.hash(data.password || 'Password@123', 10);
+    // Wrap in transaction
+    const result = await sequelize.transaction(async (t) => {
+      // 1. Hash password with helper (Uses bcryptjs)
+      const password_hash = await hashPassword(data.password || 'Password@123', 12);
 
-    const user = await User.create({
-      email: data.email,
-      password_hash: hashedPassword,
-      role: data.role || 'employee',
-      is_active: true
+      // 2. Create User record
+      const user = await User.create({
+        email: data.email,
+        password_hash,
+        role: data.role || 'employee',
+        is_active: true,
+      }, { transaction: t });
+
+      // 3. Resolve department ID
+      let deptId = data.department_id;
+      if (!deptId && data.department) {
+        const [dept] = await Department.findOrCreate({
+          where: { name: data.department },
+          transaction: t,
+        });
+        deptId = dept.id;
+      }
+
+      // 4. Resolve designation ID
+      let desigId = data.designation_id;
+      if (!desigId && (data.designation || data.employeeRole)) {
+        const desigName = data.designation || data.employeeRole;
+        const [desig] = await Designation.findOrCreate({
+          where: { name: desigName },
+          defaults: { department_id: deptId },
+          transaction: t,
+        });
+        desigId = desig.id;
+      }
+
+      // 5. Create Employee linked to User
+      const employee = await Employee.create({
+        first_name: data.first_name,
+        last_name: data.last_name || '',
+        phone: data.mobile_number || data.phone || null,
+        date_of_joining: data.joining_date || data.date_of_joining || null,
+        department_id: deptId,
+        designation_id: desigId,
+        status: data.status || 'active',
+        user_id: user.id,
+      }, { transaction: t });
+
+      // 6. Update USER with employee_id (Bidirectional Link)
+      await user.update({ employee_id: employee.id }, { transaction: t });
+
+      return employee;
     });
 
-    // ✅ create EMPLOYEE with user_id
-    const employee = await Employee.create({
-      first_name: data.first_name,
-      last_name: data.last_name,
-      department_id: data.department_id,
-      designation_id: data.designation_id,
-      status: data.status || 'active',
-      user_id: user.id // 🔥 REQUIRED
-    });
-
-    return employee;
+    // Return full employee with associations
+    return this.getById(result.id);
   }
 
   // ✅ GET ALL
@@ -105,16 +131,38 @@ class EmployeeService {
     return employee;
   }
 
-  // ✅ UPDATE
+  // ✅ UPDATE (DUAL-MODEL SYNC)
   async update(id, data) {
-    const employee = await Employee.findByPk(id);
+    const employee = await Employee.findByPk(id, { include: ['user'] });
 
     if (!employee) {
       throw { statusCode: 404, message: 'Employee not found' };
     }
 
+    // ✅ Update associated USER if credentials or role changed
+    if (employee.user && (data.email || data.role || data.password)) {
+      const userUpdates = {};
+      if (data.email) userUpdates.email = data.email;
+      if (data.role) userUpdates.role = data.role;
+      if (data.password) {
+        userUpdates.password_hash = await hashPassword(data.password);
+      }
+      
+      await employee.user.update(userUpdates);
+    }
+
+    // ✅ Resolve names if provided
+    if (data.department) {
+      const [dept] = await Department.findOrCreate({ where: { name: data.department } });
+      data.department_id = dept.id;
+    }
+    if (data.designation) {
+      const [desig] = await Designation.findOrCreate({ where: { name: data.designation } });
+      data.designation_id = desig.id;
+    }
+
     await employee.update(data);
-    return employee;
+    return this.getById(id); // Return fresh data with inclusions
   }
 
   // ✅ STATS
@@ -126,6 +174,98 @@ class EmployeeService {
 
     return { total, active, onLeave, departments };
   }
+
+  // ✅ GET DEPARTMENTS (NEW)
+  async getDepartments() {
+    return await Department.findAll({
+      where: { is_active: true },
+      order: [['name', 'ASC']],
+    });
+  }
+
+  // ✅ GET DESIGNATIONS (NEW)
+  async getDesignations() {
+    return await Designation.findAll({
+      where: { is_active: true },
+      order: [['name', 'ASC']],
+    });
+  }
+
+  // ✅ DEEP-CLEANING PERMANENT DELETE
+  async delete(id) {
+    const employee = await Employee.findByPk(id, { include: ['user'] });
+    if (!employee) throw { statusCode: 404, message: 'Employee not found' };
+
+    const userId = employee.user_id ? Number(employee.user_id) : null;
+    const empId = Number(id);
+
+    return await sequelize.transaction(async (t) => {
+      const db = require('../database/models');
+      const { 
+        Attendance, AttendanceBreak, Message, Task, TaskComment, 
+        Leave, Meeting, MeetingParticipant, Call, CallParticipant, 
+        ScreenShareSession, Document, DocumentVersion, Calendar, 
+        Notification, ConversationMember, ChatRoomMember, GroupMember,
+        RefreshToken, Project, ProjectMember, AuditLog
+      } = db;
+
+      // 1. Attendance & Breaks
+      const attendanceRecords = await Attendance.findAll({ where: { employee_id: empId }, attributes: ['id'], transaction: t });
+      const attendanceIds = attendanceRecords.map(a => a.id);
+      if (attendanceIds.length > 0) {
+        await AttendanceBreak.destroy({ where: { attendance_id: { [Op.in]: attendanceIds } }, transaction: t });
+        await Attendance.destroy({ where: { id: { [Op.in]: attendanceIds } }, transaction: t });
+      }
+
+      // 2. Work & Projects
+      await TaskComment.destroy({ where: { user_id: userId }, transaction: t });
+      await Task.destroy({ where: { [Op.or]: [{ assignedTo: empId }, { createdBy: empId }] }, transaction: t }); 
+      
+      if (Project) {
+        await Project.update({ manager_id: null }, { where: { manager_id: empId }, transaction: t });
+      }
+
+      // 3. Collaboration & Meetings
+      if (userId) {
+        await MeetingParticipant.destroy({ where: { user_id: userId }, transaction: t });
+        await MeetingActionItem.destroy({ where: { assigned_to: empId }, transaction: t });
+        await Meeting.destroy({ where: { organizer_id: userId }, transaction: t });
+        await CallParticipant.destroy({ where: { user_id: userId }, transaction: t });
+        await ScreenShareSession.destroy({ where: { user_id: userId }, transaction: t });
+        await Calendar.destroy({ where: { user_id: userId }, transaction: t });
+      }
+
+      // 4. Chat & Groups
+      await Message.destroy({ where: { sender_id: empId }, transaction: t });
+      if (userId) {
+        await ConversationMember.destroy({ where: { user_id: userId }, transaction: t });
+        await ChatRoomMember.destroy({ where: { user_id: userId }, transaction: t });
+        await GroupMember.destroy({ where: { user_id: userId }, transaction: t });
+      }
+
+      // 5. HR & Leaves
+      await Leave.destroy({ where: { employee_id: empId }, transaction: t });
+
+      // 6. System & Files
+      await Document.destroy({ where: { [Op.or]: [{ uploaded_by: userId }, { employee_id: empId }] }, transaction: t });
+      // DocumentVersion cleanup usually cascades or is linked to Document
+      
+      if (userId) {
+        await Notification.destroy({ where: { user_id: userId }, transaction: t });
+        await RefreshToken.destroy({ where: { user_id: userId }, transaction: t });
+        if (AuditLog) await AuditLog.destroy({ where: { user_id: userId }, transaction: t });
+      }
+
+      // 7. Primary Records
+      await employee.destroy({ transaction: t });
+      if (userId) {
+        await User.destroy({ where: { id: userId }, transaction: t });
+      }
+
+      return true;
+    });
+  }
 }
+
 
 module.exports = new EmployeeService();

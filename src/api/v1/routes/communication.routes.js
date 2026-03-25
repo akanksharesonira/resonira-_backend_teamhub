@@ -1,7 +1,8 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 
 const authenticate = require('../../../middleware/auth.middleware');
+const upload = require('../../../middleware/upload.middleware');
 
 const {
   getConversations,
@@ -20,12 +21,13 @@ router.use(authenticate);
  * 💬 Conversations
  */
 router.get('/conversations', getConversations);
+router.get('/conversation/resolve', require('../controllers/communication.controller').resolveConversation);
 
 /**
  * 📩 Messages
  */
 router.get('/messages', getMessages);
-router.post('/messages', sendMessage);
+router.post('/messages', upload.single('file'), sendMessage);
 
 /**
  * ✅ Mark message as read

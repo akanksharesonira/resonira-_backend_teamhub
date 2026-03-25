@@ -1,4 +1,4 @@
-﻿const Queue = require('bull');
+const Queue = require('bull');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notification.service');
@@ -23,6 +23,11 @@ try {
 
     notificationQueue.on('failed', (job, err) => {
       logger.error(`Notification job ${job.id} failed:`, err);
+    });
+
+    // 🔥 PREVENT CRASH IF REDIS IS DOWN
+    notificationQueue.on('error', (err) => {
+      logger.warn('Notification Queue Redis error:', err.message);
     });
   }
 } catch (err) {

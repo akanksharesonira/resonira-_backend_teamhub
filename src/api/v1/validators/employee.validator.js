@@ -1,18 +1,40 @@
-﻿const Joi = require('joi');
+const Joi = require('joi');
+const { error } = require('../../../utils/response');
 
-const updateEmployeeSchema = Joi.object({
-  first_name: Joi.string().min(2).max(100),
-  last_name: Joi.string().min(2).max(100),
-  phone: Joi.string(),
-  date_of_birth: Joi.date(),
-  gender: Joi.string().valid('male', 'female', 'other'),
-  address: Joi.string(),
-  department_id: Joi.number().integer(),
-  designation_id: Joi.number().integer(),
-  manager_id: Joi.number().integer(),
-  employment_type: Joi.string().valid('full_time', 'part_time', 'contract', 'intern'),
-  status: Joi.string().valid('active', 'inactive', 'on_leave', 'terminated'),
-  salary: Joi.number(),
-}).min(1);
+const validateCreateEmployee = (req, res, next) => {
+  const schema = Joi.object({
+    first_name: Joi.string().required(),
+    last_name: Joi.string().required(),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+    role: Joi.string().valid('super_admin', 'admin', 'hr', 'manager', 'employee').default('employee'),
+    department: Joi.string().optional(),
+    department_id: Joi.number().optional(),
+    employeeRole: Joi.string().optional(),
+    designation: Joi.string().optional(),
+    mobile_number: Joi.string().optional(),
+    phone: Joi.string().optional(),
+    joining_date: Joi.date().optional(),
+    date_of_joining: Joi.date().optional(),
+    status: Joi.string().valid('active', 'inactive', 'on_leave', 'terminated').default('active'),
+  });
 
-module.exports = { updateEmployeeSchema };
+  const { error: validationError, value } = schema.validate(req.body, {
+    abortEarly: false,
+    allowUnknown: true,
+    stripUnknown: false
+  });
+
+  if (validationError) {
+    const errorDetails = validationError.details.map(err => ({
+      field: err.path.join('.'),
+      message: err.message
+    }));
+    return error(res, 'Validation failed', 422, errorDetails);
+  }
+
+  req.body = value;
+  next();
+};
+
+module.exports = { validateCreateEmployee };

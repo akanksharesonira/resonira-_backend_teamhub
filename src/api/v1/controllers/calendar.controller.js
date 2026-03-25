@@ -1,4 +1,4 @@
-﻿const { Calendar } = require('../../../database/models');
+const { Calendar } = require('../../../database/models');
 const { success, error } = require('../../../utils/response');
 const { Op } = require('sequelize');
 
@@ -11,19 +11,31 @@ const ALLOWED_FIELDS = [
   'start_date',
   'end_date',
   'location',
-  'is_all_day'
+  'all_day',
+  'is_all_day',
+  'event_type',
+  'color',
+  'is_recurring',
+  'recurrence_rule'
 ];
 
 /**
- * Utility: Pick only allowed fields
+ * Utility: Pick only allowed fields and handle aliasing
  */
 const pickFields = (body) => {
-  return Object.keys(body)
+  const data = Object.keys(body)
     .filter((key) => ALLOWED_FIELDS.includes(key))
     .reduce((obj, key) => {
       obj[key] = body[key];
       return obj;
     }, {});
+
+  // Alias frontend fields to database fields
+  if (data.is_all_day !== undefined && data.all_day === undefined) {
+    data.all_day = data.is_all_day;
+  }
+  
+  return data;
 };
 
 /**
@@ -45,9 +57,13 @@ const create = async (req, res) => {
     return success(res, event, 'Event created', 201);
   } catch (err) {
     console.error('Create Event Error:', err);
+    if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeDatabaseError') {
+      return error(res, `Database error: ${err.message}`, 400);
+    }
     return error(res, 'Internal server error', 500);
   }
 };
+
 
 /**
  * ✅ GET MY EVENTS (with filters + pagination)

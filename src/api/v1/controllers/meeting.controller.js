@@ -1,18 +1,92 @@
-﻿const meetingService = require('../../../services/meeting.service');
+const meetingService = require('../../../services/meeting.service');
 const { success, error, paginated } = require('../../../utils/response');
+const Joi = require('joi');
+
+const meetingCreationSchema = Joi.object({
+  title: Joi.string().required(),
+  description: Joi.string().allow('', null).optional(),
+  date: Joi.string().optional(), // format: DD-MM-YYYY or YYYY-MM-DD
+  time: Joi.string().optional(), // format: HH:mm
+  start_time: Joi.date().iso().optional(),
+  end_time: Joi.date().iso().optional(),
+  duration: Joi.number().integer().min(1).optional(), // in minutes
+  participants: Joi.array().items(Joi.number().integer()).optional(),
+  type: Joi.string().valid('team', 'one_on_one', 'client', 'interview').optional(),
+  meeting_link: Joi.string().uri().allow('', null).optional(),
+  agenda: Joi.string().allow('', null).optional(),
+  project_id: Joi.number().integer().allow(null).optional(),
+}).unknown(true);
 
 /**
  * ✅ CREATE MEETING
  */
 const create = async (req, res) => {
   try {
-    const meeting = await meetingService.create(req.body, req.user.id);
+    const { error: validationError } = meetingCreationSchema.validate(req.body, { abortEarly: false });
+    if (validationError) {
+      const messages = validationError.details.map(d => d.message).join('; ');
+      return error(res, `Validation failed: ${messages}`, 400);
+    }
+
+    let { date, time, start_time, end_time, duration, ...rest } = req.body;
+
+    // 1. Calculate start_time from date + time if provided
+    if (!start_time && date && time) {
+      // Assuming frontend sends DD-MM-YYYY or YYYY-MM-DD
+      const [p1, p2, p3] = date.includes('-') ? date.split('-') : [];
+      let isoDateStr = '';
+      if (p1 && p1.length === 4) { // YYYY-MM-DD
+        isoDateStr = `${date}T${time}:00`;
+      } else if (p3 && p3.length === 4) { // DD-MM-YYYY
+        isoDateStr = `${p3}-${p2}-${p1}T${time}:00`; 
+      }
+      
+      const parsedStart = new Date(isoDateStr);
+      if (!isNaN(parsedStart.valueOf())) {
+        start_time = parsedStart;
+      }
+    } else if (start_time) {
+      start_time = new Date(start_time);
+    }
+
+    if (!start_time || isNaN(new Date(start_time).valueOf())) {
+      return error(res, 'Valid start_time (or date + time) is required.', 400);
+    }
+
+    // 2. Calculate end_time
+    if (!end_time) {
+      const durationMins = duration || 60; // default 1 hour
+      end_time = new Date(start_time.getTime() + durationMins * 60000);
+    } else {
+      end_time = new Date(end_time);
+    }
+
+    if (!end_time || isNaN(new Date(end_time).valueOf())) {
+      return error(res, 'Valid end_time could not be calculated.', 400);
+    }
+    
+    // Ensure start_time is before end_time
+    if (start_time >= end_time) {
+      return error(res, 'end_time must be strictly after start_time', 400);
+    }
+
+    const meetingPayload = {
+      ...rest,
+      start_time,
+      end_time
+    };
+
+    const meeting = await meetingService.create(meetingPayload, req.user.id);
     return success(res, meeting, 'Meeting created', 201);
   } catch (err) {
     console.error('Create Meeting Error:', err);
+    if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeDatabaseError') {
+      return error(res, `Database constraint error: ${err.message}`, 400);
+    }
     return error(res, err.message, err.statusCode || 500);
   }
 };
+
 
 /**
  * ✅ GET ALL MEETINGS

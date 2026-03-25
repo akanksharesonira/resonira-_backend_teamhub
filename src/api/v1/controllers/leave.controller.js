@@ -1,4 +1,4 @@
-﻿const leaveService = require('../../../services/leave.service');
+const leaveService = require('../../../services/leave.service');
 const { success, error, paginated } = require('../../../utils/response');
 
 // ✅ APPLY LEAVE
@@ -21,15 +21,28 @@ const getMyLeaves = async (req, res) => {
   }
 };
 
-// ✅ GET ALL LEAVES
-const getAll = async (req, res) => {
+// ✅ GET LEAVE BALANCE
+const getBalance = async (req, res) => {
   try {
-    const result = await leaveService.getAllLeaves(req.query);
+    const balance = await leaveService.getBalance(req.user.id);
+    return success(res, balance);
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ✅ GET LEAVES (ROLE-AWARE)
+const getLeaves = async (req, res) => {
+  try {
+    const result = await leaveService.getLeaves(req.user, req.query);
     return paginated(res, result.data, result.total, result.page, result.limit);
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
 };
+
+// Legacy getAll for compatibility if needed
+const getAll = getLeaves;
 
 // ✅ APPROVE LEAVE
 const approve = async (req, res) => {
@@ -51,6 +64,18 @@ const reject = async (req, res) => {
   }
 };
 
+// ✅ GENERIC STATUS UPDATE
+const updateStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return error(res, 'Status is required', 400);
+    const result = await leaveService.updateStatus(req.params.id, status);
+    return success(res, result, `Leave status updated to ${status}`);
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
 // ✅ GET LEAVE TYPES
 const getLeaveTypes = async (req, res) => {
   try {
@@ -64,7 +89,10 @@ const getLeaveTypes = async (req, res) => {
 module.exports = {
   apply,
   getMyLeaves,
+  getBalance,
+  getLeaves,
   getAll,
+  updateStatus,
   approve,
   reject,
   getLeaveTypes

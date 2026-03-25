@@ -1,4 +1,4 @@
-﻿const { DataTypes } = require('sequelize');
+const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 
 const Employee = sequelize.define('Employee', {
@@ -39,5 +39,27 @@ const Employee = sequelize.define('Employee', {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
 });
+
+/**
+ * Associations
+ */
+Employee.associate = (models) => {
+  Employee.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  Employee.hasOne(models.User, {
+    foreignKey: 'employee_id',
+    as: 'userAccount'
+  });
+  Employee.belongsTo(models.Department, {
+    foreignKey: 'department_id',
+    as: 'department'
+  });
+  Employee.belongsTo(models.Designation, {
+    foreignKey: 'designation_id',
+    as: 'designation'
+  });
+};
 
 module.exports = Employee;

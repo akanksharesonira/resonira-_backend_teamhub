@@ -1,7 +1,17 @@
-const { Leave, Employee, LeaveType } = require('../database/models');
+const { Leave, Employee, LeaveType, User, sequelize } = require('../database/models');
 const { Op } = require('sequelize');
 
+
 class LeaveService {
+
+  // ✅ GET LEAVES (ROLE-AWARE ROUTER)
+  async getLeaves(user, query) {
+    const adminRoles = ['super_admin', 'admin', 'administrator', 'hr', 'manager'];
+    if (adminRoles.includes(user.role)) {
+      return await this.getAllLeaves(query);
+    }
+    return await this.getMyLeaves(user.id, query);
+  }
 
   // ✅ APPLY LEAVE
   async applyLeave(userId, data) {
@@ -13,7 +23,7 @@ class LeaveService {
       throw { statusCode: 404, message: 'Employee not found' };
     }
 
-    let { leave_type_id, start_date, end_date, reason } = data;
+    let { leave_type_id, leave_type, start_date, end_date, reason } = data;
 
     if (!start_date || !end_date) {
       throw { statusCode: 400, message: 'start_date and end_date are required' };
@@ -23,23 +33,29 @@ class LeaveService {
       throw { statusCode: 400, message: 'Invalid date range' };
     }
 
-    // 🔥 AUTO CREATE LEAVE TYPE
+    // 🔥 VALIDATE LEAVE TYPE
     let leaveType = null;
-
     if (leave_type_id) {
       leaveType = await LeaveType.findByPk(leave_type_id);
-    }
-
-    if (!leaveType) {
-      leaveType = await LeaveType.create({
-        name: 'Auto Leave',
-        description: 'Created automatically',
-        max_days_per_year: 10,
-        is_paid: true,
-        is_active: true
+      if (!leaveType) {
+        throw { statusCode: 400, message: 'Invalid leave_type_id' };
+      }
+    } else if (leave_type) {
+      // Case-insensitive search
+      leaveType = await LeaveType.findOne({ 
+        where: sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('name')), 
+          '=', 
+          leave_type.toLowerCase()
+        )
       });
-
+      
+      if (!leaveType) {
+        throw { statusCode: 400, message: `Invalid leave type: ${leave_type}` };
+      }
       leave_type_id = leaveType.id;
+    } else {
+      throw { statusCode: 400, message: 'leave_type_id or leave_type is required' };
     }
 
     // 🚫 Prevent overlapping leaves
@@ -89,12 +105,32 @@ class LeaveService {
 
     const { count, rows } = await Leave.findAndCountAll({
       where: { employee_id: employee.id },
+      include: [
+        {
+          model: Employee,
+          as: 'employee',
+          attributes: ['id', 'first_name', 'last_name', 'employee_code'],
+          include: [{ model: User, as: 'user', attributes: ['email'] }]
+        },
+        { model: LeaveType, as: 'leaveType' }
+      ],
       order: [['created_at', 'DESC']],
       limit,
-      offset
+      offset,
+      subQuery: false
     });
 
-    return { data: rows, total: count, page, limit };
+    const responseData = rows.map(item => {
+      const json = item.toJSON();
+      return {
+        ...json,
+        leave_type_name: json.leaveType ? json.leaveType.name : 'Unknown',
+        // Support frontend expecting "leave_type" as string
+        leave_type: json.leaveType ? json.leaveType.name : 'Unknown'
+      };
+    });
+
+    return { data: responseData, total: count, page, limit };
   }
 
   // ✅ GET ALL LEAVES (FIXED INSIDE CLASS)
@@ -114,7 +150,8 @@ class LeaveService {
         {
           model: Employee,
           as: 'employee',
-          attributes: ['id', 'first_name', 'last_name', 'employee_code']
+          attributes: ['id', 'first_name', 'last_name', 'employee_code'],
+          include: [{ model: User, as: 'user', attributes: ['email'] }]
         },
         {
           model: LeaveType,
@@ -123,11 +160,22 @@ class LeaveService {
       ],
       order: [['created_at', 'DESC']],
       limit,
-      offset
+      offset,
+      subQuery: false
+    });
+
+    const responseData = rows.map(item => {
+      const json = item.toJSON();
+      return {
+        ...json,
+        leave_type_name: json.leaveType ? json.leaveType.name : 'Unknown',
+        // Support frontend expecting "leave_type" as string
+        leave_type: json.leaveType ? json.leaveType.name : 'Unknown'
+      };
     });
 
     return {
-      data: rows,
+      data: responseData,
       total: count,
       page,
       limit
@@ -156,6 +204,42 @@ class LeaveService {
     return await LeaveType.findAll({
       where: { is_active: true }
     });
+  }
+
+  // ✅ GET LEAVE BALANCE
+  async getBalance(userId) {
+    const employee = await Employee.findOne({ where: { user_id: userId } });
+    if (!employee) throw { statusCode: 404, message: 'Employee not found' };
+
+    // Fetch all leave types to get entitlements
+    const leaveTypes = await LeaveType.findAll({ where: { is_active: true } });
+    const usedLeaves = await Leave.findAll({
+      where: { 
+        employee_id: employee.id,
+        status: 'approved'
+      }
+    });
+
+    const balance = leaveTypes.map(type => {
+      const used = usedLeaves
+        .filter(l => l.leave_type_id === type.id)
+        .reduce((sum, current) => {
+          const start = new Date(current.start_date);
+          const end = new Date(current.end_date);
+          const days = Math.ceil((end - start + 1) / (1000 * 60 * 60 * 24)) || 1;
+          return sum + days;
+        }, 0);
+
+      return {
+        leave_type_id: type.id,
+        leave_type: type.name,
+        entitled: type.max_days_per_year,
+        used,
+        remaining: Math.max(0, type.max_days_per_year - used)
+      };
+    });
+
+    return balance;
   }
 }
 

@@ -1,10 +1,12 @@
-﻿const router = require('express').Router();
+const router = require('express').Router();
 
 //  Auth
 router.use('/auth', require('./auth.routes'));
 
 // Employee
+const { remove: removeEmployee } = require('../controllers/employee.controller');
 router.use('/employees', require('./employee.routes'));
+router.delete('/employees/:id', removeEmployee);
 
 //Department
 router.use('/departments', require('./department.routes'));
@@ -17,6 +19,7 @@ router.use('/attendance', require('./attendance.routes'));
 
 // Leaves
 router.use('/leaves', require('./leave.routes'));
+router.use('/leave', require('./leave.routes')); // Singular alias for frontend
 
 // Tasks
 router.use('/tasks', require('./task.routes'));
@@ -53,5 +56,8 @@ router.use('/calls', require('./calling.routes'));
 
 //  Screenshare
 router.use('/screenshare', require('./screenshare.routes'));
+
+//  AI Agent
+router.use('/agent', require('./agent.routes'));
 
 module.exports = router;

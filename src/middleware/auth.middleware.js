@@ -1,4 +1,4 @@
-﻿const { verifyToken } = require('../utils/encryption');
+const { verifyToken } = require('../utils/encryption');
 const { error } = require('../utils/response');
 const { User } = require('../database/models');
 
@@ -17,7 +17,9 @@ const authenticate = async (req, res, next) => {
       return error(res, 'Invalid or inactive user', 401);
     }
 
-    req.user = { id: user.id, email: user.email, role: user.role };
+    console.log(`[AUTH] Request: ${req.method} ${req.originalUrl} - UserID=${user.id}, Role=${user.role}`);
+    req.user = { id: user.id, _id: user.id, email: user.email, role: user.role };
+
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

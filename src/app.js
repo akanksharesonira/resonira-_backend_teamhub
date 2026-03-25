@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -16,7 +16,32 @@ const app = express();
 
 // Security and middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
+// Dynamic CORS configuration
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+// Always include these defaults
+['http://localhost:3000', 'http://localhost:5173', process.env.FRONTEND_URL]
+  .filter(Boolean)
+  .forEach(o => { if (!allowedOrigins.includes(o)) allowedOrigins.push(o); });
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (Postman, mobile apps, curl)
+    if (!origin) return callback(null, true);
+    // In development, allow ALL origins
+    if (process.env.NODE_ENV === 'development') return callback(null, true);
+    // In production, strictly validate
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -39,6 +64,38 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // API Routes
 app.use('/api/v1', apiRoutes);
+
+// --- Diagnostic Routes ---
+app.get('/api/v1/health', (req, res) => {
+  res.status(200).json({ success: true, status: 'UP', timestamp: new Date() });
+});
+
+app.get('/api/v1/test-sql', async (req, res) => {
+  try {
+    const sequelize = require('./config/database');
+    await sequelize.authenticate();
+    const [tables] = await sequelize.query('SHOW TABLES');
+    const [[userCount]] = await sequelize.query('SELECT COUNT(*) as count FROM users');
+    const [[taskConstraints]] = await sequelize.query("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = 'tasks' AND REFERENCED_TABLE_NAME IS NOT NULL");
+    
+    res.status(200).json({
+      success: true,
+      database: 'Connected',
+      tablesFound: tables.length,
+      activeUsers: userCount.count,
+      taskConstraints: taskConstraints.count,
+      timestamp: new Date()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Base route
+app.get('/', (req, res) => {
+  res.status(200).json({ success: true, message: 'Team Hub API is running. Access endpoints via /api/v1' });
+});
+
 
 // Health check
 app.get('/health', (req, res) => {

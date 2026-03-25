@@ -1,4 +1,4 @@
-﻿const { DataTypes } = require('sequelize');
+const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 
 const User = sequelize.define('User', {
@@ -24,7 +24,7 @@ const User = sequelize.define('User', {
   },
 
   role: {
-    type: DataTypes.ENUM('super_admin', 'admin', 'hr', 'manager', 'employee'),
+    type: DataTypes.ENUM('super_admin', 'admin', 'administrator', 'hr', 'manager', 'employee'),
     defaultValue: 'employee',
   },
 
@@ -35,6 +35,11 @@ const User = sequelize.define('User', {
 
   last_login: {
     type: DataTypes.DATE,
+  },
+
+  employee_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
   },
 
   created_at: {
@@ -62,6 +67,11 @@ User.associate = (models) => {
     foreignKey: 'user_id',
     as: 'notifications',
     onDelete: 'CASCADE'
+  });
+
+  User.belongsTo(models.Employee, {
+    foreignKey: 'employee_id',
+    as: 'employee'
   });
 };
 

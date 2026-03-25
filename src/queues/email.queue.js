@@ -1,4 +1,4 @@
-﻿const Queue = require('bull');
+const Queue = require('bull');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 const emailService = require('../services/email.service');
@@ -19,6 +19,11 @@ emailQueue.on('completed', (job) => {
 
 emailQueue.on('failed', (job, err) => {
   logger.error(`Email job ${job.id} failed:`, err);
+});
+
+// 🔥 PREVENT CRASH IF REDIS IS DOWN
+emailQueue.on('error', (err) => {
+  logger.warn('Email Queue Redis error:', err.message);
 });
 
 module.exports = emailQueue;

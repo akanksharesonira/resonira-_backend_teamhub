@@ -1,4 +1,4 @@
-﻿const { error } = require('../utils/response');
+const { error } = require('../utils/response');
 
 const authorize = (...allowedRoles) => {
   return (req, res, next) => {
@@ -6,6 +6,7 @@ const authorize = (...allowedRoles) => {
       return error(res, 'Authentication required', 401);
     }
     if (!allowedRoles.includes(req.user.role)) {
+      console.log(`[RBAC] Forbidden: User Role="${req.user.role}", AllowedRoles=[${allowedRoles.join(', ')}]`);
       return error(res, 'Insufficient permissions', 403);
     }
     next();

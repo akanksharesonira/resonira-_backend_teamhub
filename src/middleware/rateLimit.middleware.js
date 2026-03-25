@@ -1,8 +1,11 @@
-﻿const rateLimit = require('express-rate-limit');
+const rateLimit = require('express-rate-limit');
+const env = require('../config/env');
+
+const isDev = env.NODE_ENV === 'development';
 
 const defaultLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: isDev ? 5000 : 200,
   message: { success: false, message: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -10,13 +13,13 @@ const defaultLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: isDev ? 500 : 20,
   message: { success: false, message: 'Too many auth attempts, please try again later' },
 });
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: isDev ? 500 : 30,
   message: { success: false, message: 'Too many upload requests' },
 });
 

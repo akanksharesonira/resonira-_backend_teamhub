@@ -1,4 +1,4 @@
-﻿const attendanceService = require('../../../services/attendance.service');
+const attendanceService = require('../../../services/attendance.service');
 const { success, error, paginated } = require('../../../utils/response');
 
 // ✅ CHECK-IN
@@ -21,18 +21,41 @@ const checkOut = async (req, res) => {
   }
 };
 
-// ✅ GET MY ATTENDANCE
+// ✅ GET CURRENT (today's record for logged-in user)
+const getCurrent = async (req, res) => {
+  try {
+    const result = await attendanceService.getCurrent(req.user.id);
+    return success(res, result, result ? 'Current attendance found' : 'No attendance record for today');
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ✅ GET ATTENDANCE (Role-aware: Admin sees all, Employee sees own)
+const getAttendance = async (req, res) => {
+  try {
+    const result = await attendanceService.getAttendance(req.user, req.query);
+    return paginated(res, result.data, result.total, result.page, result.limit);
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ✅ GET MY ATTENDANCE (Specific to logged-in user)
 const getMyAttendance = async (req, res) => {
   try {
     const result = await attendanceService.getMyAttendance(req.user.id, req.query);
+    return paginated(res, result.data, result.total, result.page, result.limit);
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
 
-    return paginated(
-      res,
-      result.data,
-      result.total,
-      result.page,
-      result.limit
-    );
+// ✅ GET ALL ATTENDANCE (admin/hr/manager)
+const getAllAttendance = async (req, res) => {
+  try {
+    const result = await attendanceService.getAllAttendance(req.query);
+    return paginated(res, result.data, result.total, result.page, result.limit);
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -61,7 +84,10 @@ const endBreak = async (req, res) => {
 module.exports = {
   checkIn,
   checkOut,
+  getCurrent,
+  getAttendance,
   getMyAttendance,
+  getAllAttendance,
   startBreak,
   endBreak,
 };

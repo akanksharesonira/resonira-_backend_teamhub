@@ -1,4 +1,4 @@
-﻿const { DataTypes } = require('sequelize');
+const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 
 const Task = sequelize.define('Task', {
@@ -6,8 +6,18 @@ const Task = sequelize.define('Task', {
   title: { type: DataTypes.STRING(255), allowNull: false },
   description: { type: DataTypes.TEXT },
   project_id: { type: DataTypes.INTEGER },
-  assigned_to: { type: DataTypes.INTEGER },
-  assigned_by: { type: DataTypes.INTEGER },
+  assignedTo: { 
+    type: DataTypes.INTEGER, 
+    allowNull: false,
+    field: 'assignedTo' 
+  },
+  createdBy: { 
+    type: DataTypes.INTEGER, 
+    allowNull: false,
+    field: 'createdBy'
+  },
+
+
   status: {
     type: DataTypes.ENUM('todo', 'in_progress', 'in_review', 'done', 'cancelled'),
     defaultValue: 'todo',
