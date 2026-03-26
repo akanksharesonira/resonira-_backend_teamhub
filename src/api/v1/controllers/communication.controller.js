@@ -83,9 +83,9 @@ const resolveConversation = async (req, res, next) => {
 const getConversations = async (req, res, next) => {
   try {
     const { page, limit, offset } = parsePagination(req.query);
+    const currentUserId = Number(req.user.id);
 
     // Step 1: Find conversation IDs where the current user is a member
-    const currentUserId = Number(req.user.id);
     const myMemberships = await ConversationMember.findAll({
       where: { user_id: currentUserId },
       attributes: ['conversation_id'],
@@ -97,7 +97,7 @@ const getConversations = async (req, res, next) => {
       return paginated(res, [], 0, 1, limit);
     }
 
-    // Step 2: Fetch those conversations with ALL their members + user info
+    // Step 2: Fetch conversations with members and their employee profiles
     const { count, rows } = await Conversation.findAndCountAll({
       where: { id: { [Op.in]: myConvIds } },
       include: [
@@ -108,9 +108,21 @@ const getConversations = async (req, res, next) => {
             {
               model: User,
               as: 'user',
-              attributes: ['id', 'email']
+              attributes: ['id', 'email', 'role'],
+              include: [{
+                model: Employee,
+                as: 'employee',
+                attributes: ['first_name', 'last_name', 'status']
+              }]
             }
           ]
+        },
+        {
+          model: Message,
+          as: 'messages',
+          limit: 1,
+          order: [['created_at', 'DESC']],
+          attributes: ['content', 'message_type', 'created_at', 'sender_id']
         }
       ],
       distinct: true,
@@ -119,9 +131,43 @@ const getConversations = async (req, res, next) => {
       offset
     });
 
-    return paginated(res, rows, count, page, limit);
+    // Step 3: Format the response to match frontend requirements
+    const formattedRows = rows.map(conv => {
+      const plain = conv.get({ plain: true });
+      
+      // Map members to a cleaner participants list
+      const participants = plain.members.map(m => {
+        const u = m.user;
+        const e = u?.employee;
+        return {
+          id: u?.id,
+          email: u?.email,
+          role: u?.role,
+          name: e ? `${e.first_name} ${e.last_name}`.trim() : (u?.email?.split('@')[0] || 'Unknown'),
+          status: e?.status || 'Active'
+        };
+      });
+
+      const lastMsg = plain.messages && plain.messages.length > 0 ? plain.messages[0] : null;
+
+      return {
+        id: plain.id,
+        conversationId: plain.id,
+        type: plain.type,
+        participants,
+        lastMessage: lastMsg ? {
+          content: lastMsg.content,
+          type: lastMsg.message_type,
+          createdAt: lastMsg.created_at,
+          senderId: lastMsg.sender_id
+        } : null,
+        updatedAt: plain.last_message_at || plain.updated_at
+      };
+    });
+
+    return paginated(res, formattedRows, count, page, limit);
   } catch (err) {
-    logger.error('Get Conversations Error', { error: err.message, sql: err.sql || null, userId: req.user?.id });
+    logger.error('Get Conversations Error', { error: err.message, userId: req.user?.id });
     next(err);
   }
 };
@@ -188,13 +234,13 @@ const getMessages = async (req, res, next) => {
       where,
       include: [
         {
-          model: Employee,
+          model: User,
           as: 'sender',
-          attributes: ['id', 'first_name', 'last_name'],
+          attributes: ['id', 'email'],
           include: [{
-            model: User,
-            as: 'user',
-            attributes: ['id', 'email']
+            model: Employee,
+            as: 'employee',
+            attributes: ['first_name', 'last_name']
           }]
         }
       ],
@@ -205,14 +251,15 @@ const getMessages = async (req, res, next) => {
 
     const formattedRows = rows.map(m => {
       const msg = m.get({ plain: true });
-      const senderUser = msg.sender?.user;
+      const senderUser = msg.sender;
+      const emp = senderUser?.employee;
       
       return {
         ...msg,
         // Map back to a flat structure the frontend expects
         sender: senderUser ? {
           id: senderUser.id,
-          name: `${msg.sender.first_name} ${msg.sender.last_name}`.trim(),
+          name: emp ? `${emp.first_name} ${emp.last_name}`.trim() : (senderUser.email?.split('@')[0] || 'Unknown'),
           email: senderUser.email
         } : null
       };
@@ -348,14 +395,14 @@ const sendMessage = async (req, res, next) => {
 
     // ── Insert Message ─────────────────────────────────────
     const newMessage = await Message.create({
-      sender_id: senderEmployeeId, // Use Employee ID for sender_id
+      sender_id: senderId, // Normalize to User ID
       content: message ? message.trim() : (file_name || message_type),
       conversation_id: conversation ? conversation.id : null,
       chat_room_id: chat_room_id || null,
       message_type,
       file_url,
       file_name,
-      is_read: false // Explicitly set is_read to false for new messages
+      is_read: false
     }, { transaction });
 
     if (conversation) {

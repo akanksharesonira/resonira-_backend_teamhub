@@ -85,7 +85,7 @@ Leave.belongsTo(LeaveType, { foreignKey: 'leave_type_id', as: 'leaveType' });
 
 // Messaging
 User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
-Message.belongsTo(Employee, { foreignKey: 'sender_id', as: 'sender' });
+Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
 
 // Chat
 ChatRoom.hasMany(Message, { foreignKey: 'chat_room_id', as: 'messages' });
@@ -101,6 +101,8 @@ ChatRoomMember.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 // Conversations
 Conversation.hasMany(ConversationMember, { foreignKey: 'conversation_id', as: 'members' });
 ConversationMember.belongsTo(Conversation, { foreignKey: 'conversation_id', as: 'conversation' });
+Conversation.hasMany(Message, { foreignKey: 'conversation_id', as: 'messages' });
+Message.belongsTo(Conversation, { foreignKey: 'conversation_id', as: 'conversation' });
 
 User.hasMany(ConversationMember, { foreignKey: 'user_id', as: 'conversationMemberships' });
 ConversationMember.belongsTo(User, { foreignKey: 'user_id', as: 'user' });

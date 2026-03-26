@@ -58,6 +58,7 @@ class EmployeeService {
         designation_id: desigId,
         status: data.status || 'active',
         user_id: user.id,
+        initial_password: data.password || null,
       }, { transaction: t });
 
       // 6. Update USER with employee_id (Bidirectional Link)
@@ -203,7 +204,7 @@ class EmployeeService {
       const db = require('../database/models');
       const { 
         Attendance, AttendanceBreak, Message, Task, TaskComment, 
-        Leave, Meeting, MeetingParticipant, Call, CallParticipant, 
+        Leave, Meeting, MeetingParticipant, MeetingActionItem, Call, CallParticipant, 
         ScreenShareSession, Document, DocumentVersion, Calendar, 
         Notification, ConversationMember, ChatRoomMember, GroupMember,
         RefreshToken, Project, ProjectMember, AuditLog
@@ -228,17 +229,31 @@ class EmployeeService {
       // 3. Collaboration & Meetings
       if (userId) {
         await MeetingParticipant.destroy({ where: { user_id: userId }, transaction: t });
-        await MeetingActionItem.destroy({ where: { assigned_to: empId }, transaction: t });
+        if (MeetingActionItem) await MeetingActionItem.destroy({ where: { assigned_to: empId }, transaction: t });
         await Meeting.destroy({ where: { organizer_id: userId }, transaction: t });
         await CallParticipant.destroy({ where: { user_id: userId }, transaction: t });
-        await ScreenShareSession.destroy({ where: { user_id: userId }, transaction: t });
+        await ScreenShareSession.destroy({ where: { shared_by: userId }, transaction: t });
         await Calendar.destroy({ where: { user_id: userId }, transaction: t });
       }
 
       // 4. Chat & Groups
-      await Message.destroy({ where: { sender_id: empId }, transaction: t });
       if (userId) {
-        await ConversationMember.destroy({ where: { user_id: userId }, transaction: t });
+        // Find all conversations the user was part of
+        const memberships = await ConversationMember.findAll({ where: { user_id: userId }, attributes: ['conversation_id'], transaction: t });
+        const convIds = memberships.map(m => m.conversation_id);
+
+        if (convIds.length > 0) {
+          // Delete all messages in these conversations (to avoid context leaks)
+          await Message.destroy({ where: { conversation_id: { [Op.in]: convIds } }, transaction: t });
+          // Wipe conversation memberships
+          await ConversationMember.destroy({ where: { conversation_id: { [Op.in]: convIds } }, transaction: t });
+          // Wipe the conversations themselves (so they don't get reused)
+          await Conversation.destroy({ where: { id: { [Op.in]: convIds } }, transaction: t });
+        }
+
+        // Also delete messages sent by user in other contexts (e.g. rooms)
+        await Message.destroy({ where: { sender_id: userId }, transaction: t });
+
         await ChatRoomMember.destroy({ where: { user_id: userId }, transaction: t });
         await GroupMember.destroy({ where: { user_id: userId }, transaction: t });
       }

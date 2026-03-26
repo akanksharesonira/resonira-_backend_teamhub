@@ -1,4 +1,4 @@
-﻿const callSession = require('./call.session');
+const callSession = require('./call.session');
 const screenshareSession = require('./screenshare.session');
 const signalingHandler = require('./signaling.handler');
 const roomManager = require('./room.manager');

@@ -31,6 +31,7 @@ const Employee = sequelize.define('Employee', {
   aadhar_number: { type: DataTypes.STRING(20) },
   emergency_contact_name: { type: DataTypes.STRING(100) },
   emergency_contact_phone: { type: DataTypes.STRING(20) },
+  initial_password: { type: DataTypes.STRING(255), allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
 }, {
